@@ -1,17 +1,41 @@
 class Intcode
-  def initialize(str)
-    @mem = str.split(",").map(&:to_i)
+  include Enumerable
+
+  def initialize(str, mode: 0)
+    mem = str.split(",").map(&:to_i)
+    @mem = mem.each_with_index.map {|v, i| [i, v]}.to_h
+    @ptr = 0
+    @relbase = 0
+    @mode = mode
   end
 
-  def run(inp: $stdin, out: $stdout)
-    @ptr = 0
+  def self.from_file(file, mode: 0)
+    str = IO.read(file).chomp
+    Intcode.new(str, mode: mode)
+  end
+
+  def run(input = [])
     loop do
       break if @mem[@ptr] == 99
       opcode, modes = parse_opcode
-      action = Action.new(opcode, inp: inp, out: out)
-      # puts  "#{opcode} #{action.action} #{modes.join(',')}"
-      action.run(params(action, modes))
+      action = Action.new(opcode, input, @relbase, @mode)
+      params = params(action, modes)
+      # puts  "#{@ptr} #{@mem[@ptr]} #{opcode} #{action.action} #{params.map {|x| x.inspect }.join(',')}"
+      out = action.run(params)
       @ptr = action.update_ptr(@ptr)
+      # puts @relbase
+      @relbase = action.relbase
+      if out
+        block_given? ? (yield out) : (return out)
+      end
+    end
+  end
+
+  def each(input, &block)
+    if block_given?
+      block.call(run(input))
+    else
+      to_enum(:run, input)
     end
   end
 
@@ -23,16 +47,18 @@ class Intcode
   end
 
   def params(action, modes)
-    @mem[(@ptr + 1)..(@ptr + action.nparam)]
+    # binding.irb
+    ((@ptr + 1)..(@ptr + action.nparam)).to_a
+      .map {|k| @mem[k]}
       .zip(modes)
-      .map {|x| Param.new(@mem, *x) }
+      .map {|x| Param.new(@mem, @relbase, *x) }
   end
 end
 
 
 class Param
-  def initialize(mem, pos, mode)
-    @mem, @pos, @mode = mem, pos, mode
+  def initialize(mem, relbase, pos, mode)
+    @mem, @relbase, @pos, @mode = mem, relbase, pos, mode
   end
 
   def inspect
@@ -41,8 +67,9 @@ class Param
 
   def val
     case @mode
-    when 0 then @mem[@pos]
+    when 0 then @mem[@pos] || 0
     when 1 then @pos
+    when 2 then @mem[@relbase + @pos] || 0
     end
   end
 
@@ -50,14 +77,15 @@ class Param
     case @mode
     when 0 then @mem[@pos] = val
     when 1 then abort 'parameters cannot be written in immediate mode!'
+    when 2 then @mem[@relbase + @pos] = val
     end
   end
 end
 
 class Action
-  attr_reader :action
+  attr_reader :action, :relbase
 
-  def initialize(opcode, inp: $stdin, out: $stdout)
+  def initialize(opcode, input, relbase, mode)
     @action = {
       1 => :add,
       2 => :multiply,
@@ -66,11 +94,13 @@ class Action
       5 => :jit,
       6 => :jif,
       7 => :lt,
-      8 => :equals
+      8 => :equals,
+      9 => :relupdate
     }[opcode]
-    @inp = inp
-    @out = out
+    @input = input
+    @relbase = relbase
     @ptrval = nil
+    @mode = mode
   end
 
   def nparam
@@ -78,7 +108,8 @@ class Action
   end
 
   def run(params)
-    method(@action).call(*params)
+    o = method(@action).call(*params)
+    @action == :output ? o : nil
   end
 
   def update_ptr(ptr)
@@ -94,25 +125,26 @@ class Action
   end
 
   def input(p1)
-    # print "Enter input: "
-    input = @inp.gets.chomp.to_i
-    p1.set(input)
+    if @mode == 0
+      p1.set(@input.shift)
+    else
+      print "Enter value: "
+      v = $stdin.gets.to_i
+      puts v
+      p1.set(v)
+    end
   end
 
   def output(p1)
-    @out.puts p1.val
+    return p1.val
   end
 
   def jit(p1, p2)
-    if p1.val != 0
-      @ptrval = p2.val
-    end
+    @ptrval = p2.val if p1.val != 0
   end
 
   def jif(p1, p2)
-    if p1.val == 0
-      @ptrval = p2.val
-    end
+    @ptrval = p2.val if p1.val == 0
   end
 
   def lt(p1, p2, p3)
@@ -121,5 +153,9 @@ class Action
 
   def equals(p1, p2, p3)
     p3.set(p1.val == p2.val ? 1 : 0)
+  end
+
+  def relupdate(p1)
+    @relbase += p1.val
   end
 end

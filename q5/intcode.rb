@@ -3,20 +3,9 @@ class Intcode
     @mem = str.split(",").map(&:to_i)
   end
 
-  class Param
-    def initialize(pos, mode)
-      @pos = pos
-      @mode = mode
-    end
-
-    def val
-      case @mode
-      when 0 # position mode
-        @mem[p]
-      when 1 # immediate mode
-        @pos
-      end
-    end
+  def self.from_file(file)
+    str = IO.read(file).chomp
+    Intcode.new(str)
   end
 
   def run()
@@ -27,7 +16,7 @@ class Intcode
       str = str.rjust(5, '0')
       opcode = str[-2..-1].to_i
       modes = str[0..-3].split('').reverse.map(&:to_i)
-      # puts  "#{str}  #{opcode}  #{modes.join(',')}"
+      # puts  "#{i} #{str} #{opcode} #{modes.join(',')}"
       case opcode
       when 1
         p = @mem[(i+1)..(i+3)]

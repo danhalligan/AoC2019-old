@@ -1,3 +1,2 @@
-require '../intcode2.rb'
-dat = IO.read("input.txt").chomp
-Intcode.new(dat).run()
+require '../intcode.rb'
+Intcode.from_file("input.txt").run([5]) {|x| puts x}
